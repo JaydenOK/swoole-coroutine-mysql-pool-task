@@ -30,19 +30,24 @@ class TaskServerManager
      */
     private $taskModel;
     private $setting = ['enable_coroutine' => true];
+    /**
+     * @var bool
+     */
+    private $daemon;
 
     public function run($argv)
     {
         try {
             $this->taskType = isset($argv[1]) ? (string)$argv[1] : '';
             $this->port = isset($argv[2]) ? (string)$argv[2] : 9901;
+            $this->daemon = isset($argv[3]) && (in_array($argv[3], ['daemon', 'd', '-d'])) ? true : false;
             if (empty($this->taskType) || empty($this->port)) {
                 throw new \InvalidArgumentException('params error');
             }
             $this->taskModel = TaskModel::factory($this->taskType);
             $this->renameProcessName($this->processPrefix . $this->taskType);
             $this->httpServer = new \Swoole\Http\Server("0.0.0.0", $this->port, SWOOLE_BASE);
-            $setting = [];
+            $setting = ['daemonize' => (bool)$this->daemon];
             $this->setServerSetting($setting);
             $this->bindEvent(self::EVENT_WORKER_START, [$this, 'onWorkerStart']);
             $this->bindEvent(self::EVENT_REQUEST, [$this, 'onRequest']);
@@ -88,7 +93,7 @@ class TaskServerManager
 
     public function onWorkerStart(\Swoole\Server $server, int $workerId)
     {
-        echo 'worker start:' . $workerId . PHP_EOL;
+        echo 'worker start' . PHP_EOL;
     }
 
     public function onRequest(\Swoole\Http\Request $request, \Swoole\Http\Response $response)

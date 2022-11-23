@@ -7,6 +7,7 @@
  * 并发请求亚马逊。虾皮电商平台接口，测试结果如下
  *
  * [root@ac_web ]# php service.php Amazon 9901
+ * [root@ac_web ]# php service.php Shopee 9902 -d  (守护进程启动)
  *
  * [root@ac_web ]# curl "127.0.0.1:9901/?task_type=Amazon&concurrency=5&total=200"
  * {"taskCount":200,"concurrency":5,"useTime":"56s"}

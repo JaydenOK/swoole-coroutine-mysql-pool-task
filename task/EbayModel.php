@@ -4,6 +4,7 @@ namespace module\task;
 
 class Ebay extends TaskModel
 {
+    const TYPE = 'Ebay';
 
     public function tableName()
     {

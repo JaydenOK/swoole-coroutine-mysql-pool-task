@@ -15,7 +15,7 @@ class ShopeeModel extends TaskModel
     public function getTaskList($params)
     {
         // TODO: Implement getTaskList() method.
-        $result = $this->query->from($this->tableName())->where('id<', 5000)->limit($params['limit'])->fetchAll();
+        $result = $this->query->from($this->tableName())->where('id<?', 5000)->limit($params['limit'])->fetchAll();
         return $result;
     }
 

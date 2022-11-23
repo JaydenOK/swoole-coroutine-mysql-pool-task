@@ -1,5 +1,4 @@
 ## swoole-coroutine-mysql-pool-task
-swoole coroutine协程并发项目，mysql连接池， swoole-coroutine-mysql-pool-task  
 Coroutine协程并发实例，适用于内部系统要处理大量耗时的任务  
 常驻监听进程启动，Http Server + 协程 + channel 实现并发处理，可控制并发数量，分批次执行任务  
 

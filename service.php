@@ -6,21 +6,21 @@
  *
  * 并发请求亚马逊。虾皮电商平台接口，测试结果如下
  *
- * [root@ac_web yibai_ac_system]# php service.php Amazon 9900
+ * [root@ac_web ]# php service.php Amazon 9901
  *
- * [root@ac_web yibai_ac_system]# curl "127.0.0.1:9900/?task_type=Amazon&concurrency=5&total=200"
+ * [root@ac_web ]# curl "127.0.0.1:9901/?task_type=Amazon&concurrency=5&total=200"
  * {"taskCount":200,"concurrency":5,"useTime":"56s"}
  *
- * [root@ac_web yibai_ac_system]# curl "127.0.0.1:9900/?task_type=Amazon&concurrency=10&total=200"
+ * [root@ac_web ]# curl "127.0.0.1:9901/?task_type=Amazon&concurrency=10&total=200"
  * {"taskCount":200,"concurrency":10,"useTime":"28s"}
  *
- * [root@ac_web yibai_ac_system]# curl "127.0.0.1:9900/?task_type=Amazon&concurrency=20&total=200"
+ * [root@ac_web ]# curl "127.0.0.1:9901/?task_type=Amazon&concurrency=20&total=200"
  * {"taskCount":200,"concurrency":20,"useTime":"10s"}
  *
- * [root@ac_web yibai_ac_system]# curl "127.0.0.1:9900/?task_type=Amazon&concurrency=50&total=200"
+ * [root@ac_web ]# curl "127.0.0.1:9901/?task_type=Amazon&concurrency=50&total=200"
  * {"taskCount":200,"concurrency":50,"useTime":"6s"}
  *
- * [root@ac_web yibai_ac_system]# curl "127.0.0.1:9900/?task_type=Amazon&concurrency=200&total=500"
+ * [root@ac_web ]# curl "127.0.0.1:9901/?task_type=Amazon&concurrency=200&total=500"
  * {"taskCount":500,"concurrency":200,"useTime":"3s"}
  */
 

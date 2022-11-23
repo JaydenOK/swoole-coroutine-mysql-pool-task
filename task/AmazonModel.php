@@ -2,12 +2,12 @@
 
 namespace module\task;
 
-class Amazon extends TaskModel implements Task
+class AmazonModel extends TaskModel
 {
 
     const TYPE = 'Amazon';
 
-    public function identity()
+    public function tableName()
     {
         return 'yibai_amazon_account';
     }
@@ -15,13 +15,24 @@ class Amazon extends TaskModel implements Task
     public function getTaskList($params)
     {
         // TODO: Implement getTaskList() method.
-        $result = $this->query->from($this->tableName())->where('id<', 1000)->limit($params['limit'])->fetchAll();
+        $result = $this->query->from($this->tableName())->where('id<?', 5000)->limit($params['limit'])->fetchAll();
         return $result;
     }
 
-    public function runTask($task)
+    /**
+     * 重新解压，编译支持https
+     * phpize && ./configure --enable-openssl --enable-http2 && make && sudo make install
+     * @param $id
+     * @param $task
+     * @return mixed
+     * @throws \module\FluentPDO\Exception
+     */
+    public function runTask($id, $task)
     {
         // TODO: Implement runTask() method.
+        //todo 模拟业务耗时处理逻辑
+        $this->query->update($this->tableName())->set('refresh_num', mt_rand(0, 10))->where('id', $task['id'])->execute();
+
         $id = $task['id'];
         $appId = $task['app_id'];
         $sellingPartnerId = $task['selling_partner_id'];
@@ -44,13 +55,13 @@ class Amazon extends TaskModel implements Task
         ]);
         $cli->post($path, http_build_query($data));
         $responseBody = $cli->body;
-        return $cli->body;
+        return $responseBody;
     }
 
-    public function taskCallback($data)
+    public function taskCallback($id, $data)
     {
         // TODO: Implement taskCallback() method.
-        $db->where(['id' => $id])->set(['refresh_msg' => json_encode($responseBody, 256), 'refresh_time' => date('Y-m-d H:i:s')])->update('yibai_amazon_account');
+        $this->query->update($this->tableName())->set(['refresh_msg' => json_encode($data, 256), 'refresh_time' => date('Y-m-d H:i:s')])->where('id', $id)->execute();
     }
 
 

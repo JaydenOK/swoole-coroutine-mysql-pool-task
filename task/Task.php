@@ -4,11 +4,11 @@ namespace module\task;
 
 interface Task
 {
-    public function identity();
+    public function tableName();
 
     public function getTaskList($params);
 
-    public function runTask($task);
+    public function runTask($id, $task);
 
-    public function taskCallback($data);
+    public function taskCallback($id, $data);
 }

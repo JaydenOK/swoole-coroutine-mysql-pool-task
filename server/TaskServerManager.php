@@ -47,13 +47,13 @@ class TaskServerManager
             $this->taskModel = TaskModel::factory($this->taskType);
             $this->renameProcessName($this->processPrefix . $this->taskType);
             $this->httpServer = new \Swoole\Http\Server("0.0.0.0", $this->port, SWOOLE_BASE);
-            $setting = ['daemonize' => (bool)$this->daemon];
+            $setting = ['daemonize' => (bool)$this->daemon, 'log_file' => MODULE_DIR . '/logs/server-' . date('Y-m') . '.log'];
             $this->setServerSetting($setting);
             $this->bindEvent(self::EVENT_WORKER_START, [$this, 'onWorkerStart']);
             $this->bindEvent(self::EVENT_REQUEST, [$this, 'onRequest']);
             $this->startServer();
         } catch (\Exception $e) {
-            $this->writeLog($e->getMessage());
+            //$this->writeLog($e->getMessage());
             return $e->getMessage();
         }
     }

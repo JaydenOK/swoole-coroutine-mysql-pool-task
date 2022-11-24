@@ -14,11 +14,12 @@ Coroutine协程并发实例，适用于内部系统要处理大量耗时的任�
 ```
 
 #### 版本
-- ***PHP 7.1***
-- ***Swoole 4.5.11***
+- PHP 7.1
+- Swoole 4.5.11
 
 
-#### 测试,  并发请求亚马逊。虾皮电商平台接口，测试结果如下
+#### 测试结果
+
 ```shell script
 
 [root@ac_web ]# php service.php Amazon 9901

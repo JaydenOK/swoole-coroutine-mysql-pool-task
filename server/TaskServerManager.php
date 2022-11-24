@@ -1,8 +1,4 @@
 <?php
-/**
- * 多进程消费者管理实例
- * 功能 : 使用多进程，启动多个rabbitMQ消费者，消费队列数据
- */
 
 namespace module\server;
 
@@ -46,6 +42,9 @@ class TaskServerManager
             }
             $this->taskModel = TaskModel::factory($this->taskType);
             $this->renameProcessName($this->processPrefix . $this->taskType);
+            //一键协程化，使连接mysql协程化
+            \Swoole\Coroutine::set(['hook_flags' => SWOOLE_HOOK_ALL]);
+            //\Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
             $this->httpServer = new \Swoole\Http\Server("0.0.0.0", $this->port, SWOOLE_BASE);
             $setting = ['daemonize' => (bool)$this->daemon, 'log_file' => MODULE_DIR . '/logs/server-' . date('Y-m') . '.log'];
             $this->setServerSetting($setting);
@@ -139,9 +138,10 @@ class TaskServerManager
                     //阻塞获取
                     $producerChan->pop();
                     $task = $taskChan->pop();
-                    //每个协程，创建独立连接（可从连接池获取）
-                    $taskModel = TaskModel::factory($task['task_type']);
-                    go(function () use ($producerChan, $dataChan, $task, $taskModel) {
+                    go(function () use ($producerChan, $dataChan, $task) {
+                        //每个协程，创建独立连接（可从连接池获取）
+                        //$taskModel = $this->pool->get();
+                        $taskModel = TaskModel::factory($task['task_type']);
                         echo 'producer:' . $task['id'] . PHP_EOL;
                         $responseBody = $taskModel->runTask($task['id'], $task);
                         echo 'deliver:' . $task['id'] . PHP_EOL;
@@ -152,6 +152,7 @@ class TaskServerManager
                         //处理完，恢复producerChan协程
                         $producerChan->push(1);
                         echo "producer:{$task['id']} done" . PHP_EOL;
+                        //$taskModel = $this->pool->put();
                     });
                 }
             });

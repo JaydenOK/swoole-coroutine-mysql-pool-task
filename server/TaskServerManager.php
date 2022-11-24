@@ -42,7 +42,7 @@ class TaskServerManager
             }
             $this->taskModel = TaskModel::factory($this->taskType);
             $this->renameProcessName($this->processPrefix . $this->taskType);
-            //一键协程化，使连接mysql协程化
+            //一键协程化，使mysql连接协程化
             \Swoole\Coroutine::set(['hook_flags' => SWOOLE_HOOK_ALL]);
             //\Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
             $this->httpServer = new \Swoole\Http\Server("0.0.0.0", $this->port, SWOOLE_BASE);
@@ -92,7 +92,7 @@ class TaskServerManager
 
     public function onWorkerStart(\Swoole\Server $server, int $workerId)
     {
-        echo 'worker start' . PHP_EOL;
+        echo date('[Y-m-d H:i:s]') . 'worker start' . PHP_EOL;
     }
 
     public function onRequest(\Swoole\Http\Request $request, \Swoole\Http\Response $response)
@@ -112,7 +112,7 @@ class TaskServerManager
             }
             $taskCount = count($taskList);
             $startTime = time();
-            echo "task count:{$taskCount}" . PHP_EOL;
+            echo date('[Y-m-d H:i:s]') . "task count:{$taskCount}" . PHP_EOL;
             $taskChan = new \chan($taskCount);
             //初始化并发数量
             $producerChan = new \chan($concurrency);
@@ -132,7 +132,7 @@ class TaskServerManager
                     $chanStatsArr = $taskChan->stats(); //queue_num 通道中的元素数量
                     if (!isset($chanStatsArr['queue_num']) || $chanStatsArr['queue_num'] == 0) {
                         //queue_num 通道中的元素数量
-                        echo 'chanStats:' . json_encode($chanStatsArr, 256) . PHP_EOL;
+                        echo date('[Y-m-d H:i:s]') . 'chanStats:' . json_encode($chanStatsArr, 256) . PHP_EOL;
                         break;
                     }
                     //阻塞获取
@@ -142,16 +142,16 @@ class TaskServerManager
                         //每个协程，创建独立连接（可从连接池获取）
                         //$taskModel = $this->pool->get();
                         $taskModel = TaskModel::factory($task['task_type']);
-                        echo 'producer:' . $task['id'] . PHP_EOL;
+                        echo date('[Y-m-d H:i:s]') . 'producer:' . $task['id'] . PHP_EOL;
                         $responseBody = $taskModel->runTask($task['id'], $task);
-                        echo 'deliver:' . $task['id'] . PHP_EOL;
+                        echo date('[Y-m-d H:i:s]') . 'deliver:' . $task['id'] . PHP_EOL;
                         $pushStatus = $dataChan->push(['id' => $task['id'], 'data' => $responseBody]);
                         if ($pushStatus !== true) {
-                            echo 'push errCode:' . $dataChan->errCode . PHP_EOL;
+                            echo date('[Y-m-d H:i:s]') . 'push errCode:' . $dataChan->errCode . PHP_EOL;
                         }
                         //处理完，恢复producerChan协程
                         $producerChan->push(1);
-                        echo "producer:{$task['id']} done" . PHP_EOL;
+                        echo date('[Y-m-d H:i:s]') . "producer:{$task['id']} done" . PHP_EOL;
                         //$taskModel = $this->pool->put();
                     });
                 }
@@ -161,11 +161,11 @@ class TaskServerManager
                 //阻塞，等待投递结果, 通道被关闭时，执行失败返回 false,
                 $receiveData = $dataChan->pop();
                 if ($receiveData === false) {
-                    echo 'pop errCode:' . $dataChan->errCode . PHP_EOL;
+                    echo date('[Y-m-d H:i:s]') . 'pop errCode:' . $dataChan->errCode . PHP_EOL;
                     //退出
                     break;
                 }
-                echo 'receive:' . $receiveData['id'] . PHP_EOL;
+                echo date('[Y-m-d H:i:s]') . 'receive:' . $receiveData['id'] . PHP_EOL;
                 $this->taskModel->taskCallback($receiveData['id'], $receiveData['data']);
             }
             //返回响应

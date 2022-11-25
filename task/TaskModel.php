@@ -13,7 +13,7 @@ abstract class TaskModel implements Task
     /**
      * @var PdoClient
      */
-    protected $pdo;
+    protected $pdoClient;
     /**
      * @var \module\FluentPDO\Query
      */
@@ -21,13 +21,13 @@ abstract class TaskModel implements Task
 
     public function __construct()
     {
-        $this->pdo = new PdoClient();
-        $this->query = $this->pdo->getQuery();
+        $this->pdoClient = new PdoClient();
+        $this->query = $this->pdoClient->getQuery();
     }
 
     /**
      * @param $taskType
-     * @return AmazonModel|ShopeeModel|null
+     * @return TaskModel
      * @throws \Exception
      */
     public static function factory($taskType)
@@ -47,6 +47,11 @@ abstract class TaskModel implements Task
             throw new \Exception('task model not defined');
         }
         return $task;
+    }
+
+    public function __destruct()
+    {
+        $this->query->close();
     }
 
 }

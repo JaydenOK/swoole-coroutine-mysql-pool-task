@@ -20,11 +20,7 @@ class TaskServerManager
      * @var int|string
      */
     private $port;
-    private $processPrefix = 'co-http-server-';
-    /**
-     * @var \module\task\Task
-     */
-    private $taskModel;
+    private $processPrefix = 'co-server-';
     private $setting = ['enable_coroutine' => true];
     /**
      * @var bool
@@ -40,21 +36,25 @@ class TaskServerManager
             if (empty($this->taskType) || empty($this->port)) {
                 throw new \InvalidArgumentException('params error');
             }
-            $this->taskModel = TaskModel::factory($this->taskType);
-            $this->renameProcessName($this->processPrefix . $this->taskType);
-            //一键协程化，使mysql连接协程化
-            \Swoole\Coroutine::set(['hook_flags' => SWOOLE_HOOK_ALL]);
-            //\Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
-            $this->httpServer = new \Swoole\Http\Server("0.0.0.0", $this->port, SWOOLE_BASE);
-            $setting = ['daemonize' => (bool)$this->daemon, 'log_file' => MODULE_DIR . '/logs/server-' . date('Y-m') . '.log'];
-            $this->setServerSetting($setting);
-            $this->bindEvent(self::EVENT_WORKER_START, [$this, 'onWorkerStart']);
-            $this->bindEvent(self::EVENT_REQUEST, [$this, 'onRequest']);
-            $this->startServer();
+            TaskModel::factory($this->taskType);
+            $this->start();
         } catch (\Exception $e) {
-            //$this->writeLog($e->getMessage());
-            echo date('[Y-m-d H:i:s]') . $e->getMessage();
+            $this->logMessage('Exception:' . $e->getMessage());
         }
+    }
+
+    private function start()
+    {
+        //一键协程化，使mysql连接协程化
+        \Swoole\Coroutine::set(['hook_flags' => SWOOLE_HOOK_ALL]);
+        //\Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
+        $this->renameProcessName($this->processPrefix . $this->taskType);
+        $this->httpServer = new \Swoole\Http\Server("0.0.0.0", $this->port, SWOOLE_BASE);
+        $setting = ['daemonize' => (bool)$this->daemon, 'log_file' => MODULE_DIR . '/logs/server-' . date('Y-m') . '.log'];
+        $this->setServerSetting($setting);
+        $this->bindEvent(self::EVENT_WORKER_START, [$this, 'onWorkerStart']);
+        $this->bindEvent(self::EVENT_REQUEST, [$this, 'onRequest']);
+        $this->startServer();
     }
 
     /**
@@ -92,7 +92,7 @@ class TaskServerManager
 
     public function onWorkerStart(\Swoole\Server $server, int $workerId)
     {
-        echo date('[Y-m-d H:i:s]') . 'worker start' . PHP_EOL;
+        $this->logMessage('server worker start, master_pid:' . $server->master_pid);
     }
 
     public function onRequest(\Swoole\Http\Request $request, \Swoole\Http\Response $response)
@@ -102,17 +102,17 @@ class TaskServerManager
             $total = isset($request->get['total']) ? (int)$request->get['total'] : 100;  //需总处理记录数
             $taskType = isset($request->get['task_type']) ? (string)$request->get['task_type'] : '';  //任务类型
             if ($concurrency <= 0 || empty($taskType)) {
-                return $response->end('error params');
+                throw new \InvalidArgumentException('parameters error');
             }
             //数据库配置信息
-            $this->taskModel = TaskModel::factory($taskType);
-            $taskList = $this->taskModel->getTaskList(['limit' => $total]);
+            $taskModel = TaskModel::factory($taskType);
+            $taskList = $taskModel->getTaskList(['limit' => $total]);
             if (empty($taskList)) {
-                return $response->end('not task wait');
+                throw new \InvalidArgumentException('no tasks waiting to be executed');
             }
             $taskCount = count($taskList);
             $startTime = time();
-            echo date('[Y-m-d H:i:s]') . "task count:{$taskCount}" . PHP_EOL;
+            $this->logMessage("task count:{$taskCount}");
             $taskChan = new \chan($taskCount);
             //初始化并发数量
             $producerChan = new \chan($concurrency);
@@ -132,7 +132,7 @@ class TaskServerManager
                     $chanStatsArr = $taskChan->stats(); //queue_num 通道中的元素数量
                     if (!isset($chanStatsArr['queue_num']) || $chanStatsArr['queue_num'] == 0) {
                         //queue_num 通道中的元素数量
-                        echo date('[Y-m-d H:i:s]') . 'chanStats:' . json_encode($chanStatsArr, 256) . PHP_EOL;
+                        $this->logMessage('all task done');
                         break;
                     }
                     //阻塞获取
@@ -143,17 +143,17 @@ class TaskServerManager
                         //每个协程，创建独立连接（可从连接池获取）
                         //$taskModel = $this->pool->get();
                         $taskModel = TaskModel::factory($task['task_type']);
-                        echo date('[Y-m-d H:i:s]') . 'producer:' . $task['id'] . PHP_EOL;
+                        $this->logMessage('taskRun:' . $task['id']);
                         $responseBody = $taskModel->taskRun($task['id'], $task);
-                        echo date('[Y-m-d H:i:s]') . 'deliver:' . $task['id'] . PHP_EOL;
+                        $this->logMessage("task finish:{$task['id']}");
                         $pushStatus = $dataChan->push(['id' => $task['id'], 'data' => $responseBody]);
                         if ($pushStatus !== true) {
-                            echo date('[Y-m-d H:i:s]') . 'push errCode:' . $dataChan->errCode . PHP_EOL;
+                            $this->logMessage('push errCode:' . $dataChan->errCode);
                         }
                         //处理完，恢复producerChan协程
                         $producerChan->push(1);
-                        echo date('[Y-m-d H:i:s]') . "producer:{$task['id']} done" . PHP_EOL;
                         //$taskModel = $this->pool->put();
+                        $taskModel = null;
                     });
                 }
             });
@@ -162,30 +162,31 @@ class TaskServerManager
                 //阻塞，等待投递结果, 通道被关闭时，执行失败返回 false,
                 $receiveData = $dataChan->pop();
                 if ($receiveData === false) {
-                    echo date('[Y-m-d H:i:s]') . 'pop errCode:' . $dataChan->errCode . PHP_EOL;
+                    $this->logMessage('channel close, pop errCode:' . $dataChan->errCode);
                     //退出
                     break;
                 }
-                echo date('[Y-m-d H:i:s]') . 'receive:' . $receiveData['id'] . PHP_EOL;
-                $this->taskModel->taskDone($receiveData['id'], $receiveData['data']);
+                $this->logMessage('taskDone:' . $receiveData['id']);
+                $taskModel->taskDone($receiveData['id'], $receiveData['data']);
             }
             //返回响应
             $endTime = time();
             $return = ['taskCount' => $taskCount, 'concurrency' => $concurrency, 'useTime' => ($endTime - $startTime) . 's'];
-            return $response->end(json_encode($return));
-        } catch (\Swoole\ExitException $e) {
-            return $response->end(json_encode($e->getMessage()));
+        } catch (\InvalidArgumentException $e) {
+            $return = json_encode(['Exception' => $e->getMessage()]);
+        } catch (\Exception $e) {
+            $this->logMessage('Exception:' . $e->getMessage());
+            $return = json_encode(['Exception' => $e->getMessage()]);
         }
+        $taskModel = null;
+        return $response->end(json_encode($return));
     }
 
-    /**
-     * @param string $logData
-     */
-    private function writeLog($logData = '')
+    private function logMessage($logData = '')
     {
-        $logFile = MODULE_DIR . '/logs/server-' . date('Y-m') . '.log';
         $logData = (is_array($logData) || is_object($logData)) ? json_encode($logData, JSON_UNESCAPED_UNICODE) : $logData;
-        file_put_contents($logFile, date('[Y-m-d H:i:s]') . $logData . PHP_EOL, FILE_APPEND);
+        echo date('[Y-m-d H:i:s]') . $logData . PHP_EOL;
     }
+
 
 }

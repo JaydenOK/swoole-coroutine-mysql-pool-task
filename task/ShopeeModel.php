@@ -19,7 +19,7 @@ class ShopeeModel extends TaskModel
         return $result;
     }
 
-    public function runTask($id, $task)
+    public function taskRun($id, $task)
     {
         // TODO: Implement runTask() method.
         $this->query->update($this->tableName())->set('refresh_num', mt_rand(0, 10))->where('id', $task['id'])->execute();
@@ -44,7 +44,7 @@ class ShopeeModel extends TaskModel
         return $responseBody;
     }
 
-    public function taskCallback($id, $data)
+    public function taskDone($id, $data)
     {
         // TODO: Implement taskCallback() method.
         $this->query->update($this->tableName())->set(['refresh_msg' => json_encode($data, 256), 'refresh_time' => date('Y-m-d H:i:s')])->where('id', $id)->execute();

@@ -8,7 +8,7 @@ interface Task
 
     public function getTaskList($params);
 
-    public function runTask($id, $task);
+    public function taskRun($id, $task);
 
-    public function taskCallback($id, $data);
+    public function taskDone($id, $data);
 }

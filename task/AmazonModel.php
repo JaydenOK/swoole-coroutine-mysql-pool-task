@@ -27,7 +27,7 @@ class AmazonModel extends TaskModel
      * @return mixed
      * @throws \module\FluentPDO\Exception
      */
-    public function runTask($id, $task)
+    public function taskRun($id, $task)
     {
         // TODO: Implement runTask() method.
         //todo 模拟业务耗时处理逻辑
@@ -58,7 +58,7 @@ class AmazonModel extends TaskModel
         return $responseBody;
     }
 
-    public function taskCallback($id, $data)
+    public function taskDone($id, $data)
     {
         // TODO: Implement taskCallback() method.
         $this->query->update($this->tableName())->set(['refresh_msg' => json_encode($data, 256), 'refresh_time' => date('Y-m-d H:i:s')])->where('id', $id)->execute();

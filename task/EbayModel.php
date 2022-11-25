@@ -16,12 +16,12 @@ class Ebay extends TaskModel
         // TODO: Implement getTaskList() method.
     }
 
-    public function runTask($id, $task)
+    public function taskRun($id, $task)
     {
         // TODO: Implement runTask() method.
     }
 
-    public function taskCallback($id, $data)
+    public function taskDone($id, $data)
     {
         // TODO: Implement taskCallback() method.
     }

@@ -53,7 +53,7 @@ class TaskServerManager
             $this->startServer();
         } catch (\Exception $e) {
             //$this->writeLog($e->getMessage());
-            return $e->getMessage();
+            echo date('[Y-m-d H:i:s]') . $e->getMessage();
         }
     }
 
@@ -138,12 +138,13 @@ class TaskServerManager
                     //阻塞获取
                     $producerChan->pop();
                     $task = $taskChan->pop();
+                    //同级协程，使用channel传递数据，
                     go(function () use ($producerChan, $dataChan, $task) {
                         //每个协程，创建独立连接（可从连接池获取）
                         //$taskModel = $this->pool->get();
                         $taskModel = TaskModel::factory($task['task_type']);
                         echo date('[Y-m-d H:i:s]') . 'producer:' . $task['id'] . PHP_EOL;
-                        $responseBody = $taskModel->runTask($task['id'], $task);
+                        $responseBody = $taskModel->taskRun($task['id'], $task);
                         echo date('[Y-m-d H:i:s]') . 'deliver:' . $task['id'] . PHP_EOL;
                         $pushStatus = $dataChan->push(['id' => $task['id'], 'data' => $responseBody]);
                         if ($pushStatus !== true) {
@@ -166,7 +167,7 @@ class TaskServerManager
                     break;
                 }
                 echo date('[Y-m-d H:i:s]') . 'receive:' . $receiveData['id'] . PHP_EOL;
-                $this->taskModel->taskCallback($receiveData['id'], $receiveData['data']);
+                $this->taskModel->taskDone($receiveData['id'], $receiveData['data']);
             }
             //返回响应
             $endTime = time();

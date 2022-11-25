@@ -2,7 +2,7 @@
 
 namespace module\server;
 
-use module\task\TaskModel;
+use module\task\TaskFactory;
 
 class TaskServerManager
 {
@@ -36,7 +36,7 @@ class TaskServerManager
             if (empty($this->taskType) || empty($this->port)) {
                 throw new \InvalidArgumentException('params error');
             }
-            TaskModel::factory($this->taskType);
+            TaskFactory::factory($this->taskType);
             $this->start();
         } catch (\Exception $e) {
             $this->logMessage('Exception:' . $e->getMessage());
@@ -105,7 +105,7 @@ class TaskServerManager
                 throw new \InvalidArgumentException('parameters error');
             }
             //数据库配置信息
-            $taskModel = TaskModel::factory($taskType);
+            $taskModel = TaskFactory::factory($taskType);
             $taskList = $taskModel->getTaskList(['limit' => $total]);
             if (empty($taskList)) {
                 throw new \InvalidArgumentException('no tasks waiting to be executed');
@@ -132,7 +132,7 @@ class TaskServerManager
                     $chanStatsArr = $taskChan->stats(); //queue_num 通道中的元素数量
                     if (!isset($chanStatsArr['queue_num']) || $chanStatsArr['queue_num'] == 0) {
                         //queue_num 通道中的元素数量
-                        $this->logMessage('all task done');
+                        $this->logMessage('finish deliver');
                         break;
                     }
                     //阻塞获取
@@ -142,7 +142,7 @@ class TaskServerManager
                     go(function () use ($producerChan, $dataChan, $task) {
                         //每个协程，创建独立连接（可从连接池获取）
                         //$taskModel = $this->pool->get();
-                        $taskModel = TaskModel::factory($task['task_type']);
+                        $taskModel = TaskFactory::factory($task['task_type']);
                         $this->logMessage('taskRun:' . $task['id']);
                         $responseBody = $taskModel->taskRun($task['id'], $task);
                         $this->logMessage("task finish:{$task['id']}");

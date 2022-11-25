@@ -7,6 +7,11 @@ use module\FluentPDO\Query;
 class PdoClient
 {
     /**
+     * @var Query
+     */
+    private $query;
+
+    /**
      * @return mixed
      * @throws \Exception
      */
@@ -30,8 +35,8 @@ class PdoClient
         $pdo = new \PDO("mysql:dbname={$config['dbname']};host={$config['host']};charset={$config['charset']}", "{$config['user']}", "{$config['password']}");
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_WARNING);
         $pdo->setAttribute(\PDO::ATTR_CASE, \PDO::CASE_LOWER);
-        $fluent = new Query($pdo);
-        return $fluent;
+        $this->query = new Query($pdo);
+        return $this->query;
     }
 
 }

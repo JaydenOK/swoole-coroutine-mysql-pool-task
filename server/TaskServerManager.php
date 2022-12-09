@@ -2,6 +2,7 @@
 
 namespace module\server;
 
+use module\task\AmazonModel;
 use module\task\TaskFactory;
 
 class TaskServerManager
@@ -21,23 +22,41 @@ class TaskServerManager
      */
     private $port;
     private $processPrefix = 'co-server-';
-    private $setting = ['enable_coroutine' => true];
+    private $setting = ['worker_num' => 2, 'enable_coroutine' => true];
     /**
      * @var bool
      */
     private $daemon;
+    /**
+     * @var string
+     */
+    private $pidFile;
 
     public function run($argv)
     {
         try {
-            $this->taskType = isset($argv[1]) ? (string)$argv[1] : '';
-            $this->port = isset($argv[2]) ? (string)$argv[2] : 9901;
-            $this->daemon = isset($argv[3]) && (in_array($argv[3], ['daemon', 'd', '-d'])) ? true : false;
-            if (empty($this->taskType) || empty($this->port)) {
+            $cmd = isset($argv[1]) ? (string)$argv[1] : 'status';
+            $this->taskType = isset($argv[2]) ? (string)$argv[2] : '';
+            $this->port = isset($argv[3]) ? (string)$argv[3] : 9901;
+            $this->daemon = isset($argv[4]) && (in_array($argv[4], ['daemon', 'd', '-d'])) ? true : false;
+            if (empty($this->taskType) || empty($this->port) || empty($cmd)) {
                 throw new \InvalidArgumentException('params error');
             }
+            $this->pidFile = $this->taskType . '.pid';
             TaskFactory::factory($this->taskType);
-            $this->start();
+            switch ($cmd) {
+                case 'start':
+                    $this->start();
+                    break;
+                case 'stop':
+                    $this->stop();
+                    break;
+                case 'status':
+                    $this->status();
+                    break;
+                default:
+                    break;
+            }
         } catch (\Exception $e) {
             $this->logMessage('Exception:' . $e->getMessage());
         }
@@ -50,7 +69,11 @@ class TaskServerManager
         //\Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
         $this->renameProcessName($this->processPrefix . $this->taskType);
         $this->httpServer = new \Swoole\Http\Server("0.0.0.0", $this->port, SWOOLE_BASE);
-        $setting = ['daemonize' => (bool)$this->daemon, 'log_file' => MODULE_DIR . '/logs/server-' . date('Y-m') . '.log'];
+        $setting = [
+            'daemonize' => (bool)$this->daemon,
+            'log_file' => MODULE_DIR . '/logs/server-' . date('Y-m') . '.log',
+            'pid_file' => MODULE_DIR . '/logs/' . $this->pidFile,
+        ];
         $this->setServerSetting($setting);
         $this->bindEvent(self::EVENT_WORKER_START, [$this, 'onWorkerStart']);
         $this->bindEvent(self::EVENT_REQUEST, [$this, 'onRequest']);
@@ -88,11 +111,14 @@ class TaskServerManager
     private function startServer()
     {
         $this->httpServer->start();
+        echo 'done' . PHP_EOL;
     }
 
     public function onWorkerStart(\Swoole\Server $server, int $workerId)
     {
         $this->logMessage('server worker start, master_pid:' . $server->master_pid);
+        //初始化连接池
+
     }
 
     public function onRequest(\Swoole\Http\Request $request, \Swoole\Http\Response $response)
@@ -127,6 +153,7 @@ class TaskServerManager
             }
             //创建生产者协程，投递任务
             //创建协程处理请求
+            $taskModel = TaskFactory::factory($taskType);
             go(function () use ($taskChan, $producerChan, $dataChan) {
                 while (true) {
                     $chanStatsArr = $taskChan->stats(); //queue_num 通道中的元素数量
@@ -186,6 +213,39 @@ class TaskServerManager
     {
         $logData = (is_array($logData) || is_object($logData)) ? json_encode($logData, JSON_UNESCAPED_UNICODE) : $logData;
         echo date('[Y-m-d H:i:s]') . $logData . PHP_EOL;
+    }
+
+    private function stop($force = false)
+    {
+        $pidFile = MODULE_DIR . '/logs/' . $this->pidFile;
+        if (!file_exists($pidFile)) {
+            throw new \Exception('server not running');
+        }
+        $pid = file_get_contents($pidFile);
+        if (!\Swoole\Process::kill($pid, 0)) {
+            unlink($pidFile);
+            throw new \Exception("pid not exist:{$pid}");
+        } else {
+            if ($force) {
+                \Swoole\Process::kill($pid, SIGKILL);
+            } else {
+                \Swoole\Process::kill($pid);
+            }
+        }
+    }
+
+    private function status()
+    {
+        $pidFile = MODULE_DIR . '/logs/' . $this->pidFile;
+        if (!file_exists($pidFile)) {
+            throw new \Exception('server not running');
+        }
+        $pid = file_get_contents($pidFile);
+        if (!\Swoole\Process::kill($pid, 0)) {
+            echo 'not running, pid:' . $pid . PHP_EOL;
+        } else {
+            echo 'running, pid:' . $pid . PHP_EOL;
+        }
     }
 
 

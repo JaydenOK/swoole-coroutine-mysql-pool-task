@@ -27,6 +27,7 @@ abstract class TaskModel implements Task
         $this->query->close();
         $this->query = null;
         $this->pdoClient = null;
+        //echo date('[Y-m-d H:i:s]') . 'query close' . PHP_EOL;
     }
 
 }

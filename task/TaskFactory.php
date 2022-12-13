@@ -1,11 +1,16 @@
 <?php
 
 namespace module\task;
-
+/**
+ * 工厂方法，生产任务模型
+ * Class TaskFactory
+ * @package module\task
+ */
 class TaskFactory
 {
     const TASK_AMAZON = 'Amazon';
     const TASK_SHOPEE = 'Shopee';
+    const TASK_EBAY = 'Ebay';
 
     /**
      * @param $taskType

@@ -5,8 +5,6 @@ namespace module\task;
 class ShopeeModel extends TaskModel
 {
 
-    const TYPE = 'Shopee';
-
     public function tableName()
     {
         return 'yibai_shopee_account';
@@ -15,14 +13,15 @@ class ShopeeModel extends TaskModel
     public function getTaskList($params)
     {
         // TODO: Implement getTaskList() method.
-        $result = $this->query->from($this->tableName())->where('id<?', 5000)->limit($params['limit'])->fetchAll();
+        $result = $this->query->where('id', 5000, '<')->get($this->tableName(), $params['limit']);
         return $result;
     }
 
     public function taskRun($id, $task)
     {
         // TODO: Implement runTask() method.
-        $this->query->update($this->tableName())->set('refresh_num', mt_rand(0, 10))->where('id', $task['id'])->execute();
+        $data = ['refresh_num' => mt_rand(0, 10)];
+        $res = $this->query->where('id', $task['id'])->update($this->tableName(), $data);
         $host = 'partner.shopeemobile.com';
         $timestamp = time();
         $path = '/api/v2/auth/access_token/get';
@@ -47,7 +46,8 @@ class ShopeeModel extends TaskModel
     public function taskDone($id, $data)
     {
         // TODO: Implement taskCallback() method.
-        $this->query->update($this->tableName())->set(['refresh_msg' => json_encode($data, 256), 'refresh_time' => date('Y-m-d H:i:s')])->where('id', $id)->execute();
+        $data = ['refresh_msg' => json_encode($data, 256), 'refresh_time' => date('Y-m-d H:i:s')];
+        $res = $this->query->where('id', $id)->update($this->tableName(), $data);
     }
 
 

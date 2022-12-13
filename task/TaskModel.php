@@ -2,32 +2,32 @@
 
 namespace module\task;
 
-use module\lib\PdoClient;
+use module\lib\MysqliClient;
 
 abstract class TaskModel implements Task
 {
 
     /**
-     * @var PdoClient
+     * @var MysqliClient
      */
-    protected $pdoClient;
+    protected $mysqliClient;
     /**
-     * @var \module\FluentPDO\Query
+     * @var \module\lib\MysqliDb
      */
     protected $query;
 
     public function __construct()
     {
-        $this->pdoClient = new PdoClient();
-        $this->query = $this->pdoClient->getQuery();
+        $this->mysqliClient = new MysqliClient();
+        $this->query = $this->mysqliClient->getQuery();
     }
 
+    //关闭mysql短连接
     public function __destruct()
     {
-        $this->query->close();
+        $this->query->disconnect();
         $this->query = null;
-        $this->pdoClient = null;
-        //echo date('[Y-m-d H:i:s]') . 'query close' . PHP_EOL;
+        $this->mysqliClient = null;
     }
 
 }

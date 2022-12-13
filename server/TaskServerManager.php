@@ -2,7 +2,6 @@
 
 namespace module\server;
 
-use module\task\AmazonModel;
 use module\task\TaskFactory;
 
 class TaskServerManager
@@ -64,8 +63,8 @@ class TaskServerManager
 
     private function start()
     {
-        //一键协程化，使mysql连接协程化
-        \Swoole\Coroutine::set(['hook_flags' => SWOOLE_HOOK_ALL]);
+        //一键协程化，使回调事件函数的mysql连接、查询协程化
+        \Swoole\Coroutine::set(['hook_flags' => SWOOLE_HOOK_TCP]);
         //\Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
         $this->renameProcessName($this->processPrefix . $this->taskType);
         $this->httpServer = new \Swoole\Http\Server("0.0.0.0", $this->port, SWOOLE_BASE);
@@ -132,7 +131,7 @@ class TaskServerManager
             }
             //数据库配置信息
             $taskModel = TaskFactory::factory($taskType);
-            $taskList = $taskModel->getTaskList(['limit' => $total]);
+            $taskList = $taskModel->getTaskList(['limit' => $total]);       //已一键协程化，多个请求时，此处不阻塞
             if (empty($taskList)) {
                 throw new \InvalidArgumentException('no tasks waiting to be executed');
             }
@@ -170,9 +169,14 @@ class TaskServerManager
                         //每个协程，创建独立连接（可从连接池获取）
                         //$taskModel = $this->pool->get();
                         $taskModel = TaskFactory::factory($task['task_type']);
+                        \Swoole\Coroutine::defer(function () use ($taskModel) {
+                            //释放内存及mysql连接
+                            unset($taskModel);
+                        });
+                        //Context::put('taskModel', $taskModel);
                         $this->logMessage('taskRun:' . $task['id']);
                         $responseBody = $taskModel->taskRun($task['id'], $task);
-                        $this->logMessage("task finish:{$task['id']}");
+                        $this->logMessage("taskFinish:{$task['id']}");
                         $pushStatus = $dataChan->push(['id' => $task['id'], 'data' => $responseBody]);
                         if ($pushStatus !== true) {
                             $this->logMessage('push errCode:' . $dataChan->errCode);
@@ -180,7 +184,6 @@ class TaskServerManager
                         //处理完，恢复producerChan协程
                         $producerChan->push(1);
                         //$taskModel = $this->pool->put();
-                        $taskModel = null;
                     });
                 }
             });

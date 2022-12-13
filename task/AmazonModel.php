@@ -5,8 +5,6 @@ namespace module\task;
 class AmazonModel extends TaskModel
 {
 
-    const TYPE = 'Amazon';
-
     public function tableName()
     {
         return 'yibai_amazon_account';
@@ -15,7 +13,8 @@ class AmazonModel extends TaskModel
     public function getTaskList($params)
     {
         // TODO: Implement getTaskList() method.
-        $result = $this->query->from($this->tableName())->where('id<?', 5000)->limit($params['limit'])->fetchAll();
+        //$result = $this->query->where('id', 5000, '<')->get($this->tableName(), $params['limit']);      //查所有
+        $result = $this->query->where('id', 5000, '<')->page(1)->limit($params['limit'])->paginate($this->tableName());
         return $result;
     }
 
@@ -25,13 +24,14 @@ class AmazonModel extends TaskModel
      * @param $id
      * @param $task
      * @return mixed
-     * @throws \module\FluentPDO\Exception
+     * @throws \Exception
      */
     public function taskRun($id, $task)
     {
         // TODO: Implement runTask() method.
         //todo 模拟业务耗时处理逻辑
-        $this->query->update($this->tableName())->set('refresh_num', mt_rand(0, 10))->where('id', $task['id'])->execute();
+        $data = ['refresh_num' => mt_rand(0, 10)];
+        $res = $this->query->where('id', $task['id'])->update($this->tableName(), $data);
 
         $id = $task['id'];
         $appId = $task['app_id'];
@@ -61,7 +61,8 @@ class AmazonModel extends TaskModel
     public function taskDone($id, $data)
     {
         // TODO: Implement taskCallback() method.
-        $this->query->update($this->tableName())->set(['refresh_msg' => json_encode($data, 256), 'refresh_time' => date('Y-m-d H:i:s')])->where('id', $id)->execute();
+        $data = ['refresh_msg' => json_encode($data, 256), 'refresh_time' => date('Y-m-d H:i:s')];
+        $res = $this->query->where('id', $id)->update($this->tableName(), $data);
     }
 
 

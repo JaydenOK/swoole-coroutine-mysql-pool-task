@@ -2,12 +2,17 @@
 
 namespace module\server;
 
+use module\lib\PdoPoolClient;
 use module\task\TaskFactory;
 
 class TaskServerManager
 {
+    const EVENT_START = 'start';
+    const EVENT_MANAGER_START = 'managerStart';
     const EVENT_WORKER_START = 'workerStart';
+    const EVENT_WORKER_STOP = 'workerStop';
     const EVENT_REQUEST = 'request';
+
     /**
      * @var \Swoole\Http\Server
      */
@@ -30,6 +35,19 @@ class TaskServerManager
      * @var string
      */
     private $pidFile;
+    /**
+     * @var int
+     */
+    private $poolSize = 16;
+    /**
+     * 是否使用连接池，可参数指定，默认不使用
+     * @var bool
+     */
+    private $isUsePool = false;
+    /**
+     * @var \Swoole\Database\PDOPool
+     */
+    private $pool;
 
     public function run($argv)
     {
@@ -38,11 +56,14 @@ class TaskServerManager
             $this->taskType = isset($argv[2]) ? (string)$argv[2] : '';
             $this->port = isset($argv[3]) ? (string)$argv[3] : 9901;
             $this->daemon = isset($argv[4]) && (in_array($argv[4], ['daemon', 'd', '-d'])) ? true : false;
+            $this->isUsePool = isset($argv[5]) && (in_array($argv[5], ['use_pool', 'pool', '-pool'])) ? true : false;
             if (empty($this->taskType) || empty($this->port) || empty($cmd)) {
                 throw new \InvalidArgumentException('params error');
             }
             $this->pidFile = $this->taskType . '.pid';
-            TaskFactory::factory($this->taskType);
+            if (!in_array($this->taskType, TaskFactory::taskList())) {
+                throw new \InvalidArgumentException('task_type not exist');
+            }
             switch ($cmd) {
                 case 'start':
                     $this->start();
@@ -67,14 +88,17 @@ class TaskServerManager
         \Swoole\Coroutine::set(['hook_flags' => SWOOLE_HOOK_TCP]);
         //\Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
         $this->renameProcessName($this->processPrefix . $this->taskType);
-        $this->httpServer = new \Swoole\Http\Server("0.0.0.0", $this->port, SWOOLE_BASE);
+        $this->httpServer = new \Swoole\Http\Server("0.0.0.0", $this->port);
         $setting = [
             'daemonize' => (bool)$this->daemon,
             'log_file' => MODULE_DIR . '/logs/server-' . date('Y-m') . '.log',
             'pid_file' => MODULE_DIR . '/logs/' . $this->pidFile,
         ];
         $this->setServerSetting($setting);
+        $this->bindEvent(self::EVENT_START, [$this, 'onStart']);
+        $this->bindEvent(self::EVENT_MANAGER_START, [$this, 'onManagerStart']);
         $this->bindEvent(self::EVENT_WORKER_START, [$this, 'onWorkerStart']);
+        $this->bindEvent(self::EVENT_WORKER_STOP, [$this, 'onWorkerStop']);
         $this->bindEvent(self::EVENT_REQUEST, [$this, 'onRequest']);
         $this->startServer();
     }
@@ -113,11 +137,49 @@ class TaskServerManager
         echo 'done' . PHP_EOL;
     }
 
+    public function onStart(\Swoole\Server $server)
+    {
+        //onStart 调用时修改主进程名称
+        //onManagerStart 调用时修改管理进程 (manager) 的名称
+        //onWorkerStart 调用时修改 worker 进程名称
+        $this->logMessage('start, master_pid:' . $server->master_pid);
+        $this->renameProcessName($this->processPrefix . $this->taskType . '-master');
+    }
+
+    public function onManagerStart(\Swoole\Server $server)
+    {
+        $this->logMessage('manager start, manager_pid:' . $server->manager_pid);
+        $this->renameProcessName($this->processPrefix . $this->taskType . '-manager');
+    }
+
     public function onWorkerStart(\Swoole\Server $server, int $workerId)
     {
-        $this->logMessage('server worker start, master_pid:' . $server->master_pid);
+        $this->logMessage('worker start, worker_pid:' . $server->worker_pid);
+        $this->renameProcessName($this->processPrefix . $this->taskType . '-worker-' . $workerId);
         //初始化连接池
+        if ($this->isUsePool) {
+            try {
+                $this->pool = (new PdoPoolClient())->initPool($this->poolSize);
+                //预热，填充连接池
+                $this->pool->fill();
+                $this->logMessage('use pool:' . $this->poolSize);
+            } catch (\Exception $e) {
+                $this->logMessage('initPool error:' . $e->getMessage());
+            }
+        }
+    }
 
+    public function onWorkerStop(\Swoole\Server $server, int $workerId)
+    {
+        $this->logMessage('worker stop, worker_pid:' . $server->worker_pid);
+        if ($this->isUsePool) {
+            try {
+                $this->logMessage('pool close');
+                $this->pool && $this->pool->close();
+            } catch (\Exception $e) {
+                $this->logMessage('pool close error:' . $e->getMessage());
+            }
+        }
     }
 
     public function onRequest(\Swoole\Http\Request $request, \Swoole\Http\Response $response)
@@ -130,8 +192,9 @@ class TaskServerManager
                 throw new \InvalidArgumentException('parameters error');
             }
             //数据库配置信息
-            $taskModel = TaskFactory::factory($taskType);
-            $taskList = $taskModel->getTaskList(['limit' => $total]);       //已一键协程化，多个请求时，此处不阻塞
+            $pdo = $this->isUsePool ? $this->getPoolObject() : null;
+            $mainTaskModel = TaskFactory::factory($taskType, $pdo);
+            $taskList = $mainTaskModel->getTaskList(['limit' => $total]);       //已一键协程化，多个请求时，此处不阻塞
             if (empty($taskList)) {
                 throw new \InvalidArgumentException('no tasks waiting to be executed');
             }
@@ -150,9 +213,7 @@ class TaskServerManager
                 $task = array_merge($task, ['task_type' => $taskType]);
                 $taskChan->push($task);
             }
-            //创建生产者协程，投递任务
-            //创建协程处理请求
-            $taskModel = TaskFactory::factory($taskType);
+            //创建生产者主协程，用于投递任务
             go(function () use ($taskChan, $producerChan, $dataChan) {
                 while (true) {
                     $chanStatsArr = $taskChan->stats(); //queue_num 通道中的元素数量
@@ -164,26 +225,29 @@ class TaskServerManager
                     //阻塞获取
                     $producerChan->pop();
                     $task = $taskChan->pop();
-                    //同级协程，使用channel传递数据，
+                    //创建子协程，执行任务，使用channel传递数据
                     go(function () use ($producerChan, $dataChan, $task) {
-                        //每个协程，创建独立连接（可从连接池获取）
-                        //$taskModel = $this->pool->get();
-                        $taskModel = TaskFactory::factory($task['task_type']);
-                        \Swoole\Coroutine::defer(function () use ($taskModel) {
-                            //释放内存及mysql连接
-                            unset($taskModel);
-                        });
-                        //Context::put('taskModel', $taskModel);
-                        $this->logMessage('taskRun:' . $task['id']);
-                        $responseBody = $taskModel->taskRun($task['id'], $task);
-                        $this->logMessage("taskFinish:{$task['id']}");
+                        try {
+                            //每个协程，创建独立连接（可从连接池获取）
+                            $pdo = $this->isUsePool ? $this->getPoolObject() : null;
+                            $taskModel = TaskFactory::factory($task['task_type'], $pdo);
+                            \Swoole\Coroutine::defer(function () use ($taskModel) {
+                                //释放内存及mysql连接
+                                unset($taskModel);
+                            });
+                            $this->logMessage('taskRun:' . $task['id']);
+                            $responseBody = $taskModel->taskRun($task['id'], $task);
+                            $this->logMessage("taskFinish:{$task['id']}");
+                        } catch (\Exception $e) {
+                            $this->logMessage("taskRunException: id:{$task['id']}: msg:" . $e->getMessage());
+                            $responseBody = null;
+                        }
                         $pushStatus = $dataChan->push(['id' => $task['id'], 'data' => $responseBody]);
                         if ($pushStatus !== true) {
                             $this->logMessage('push errCode:' . $dataChan->errCode);
                         }
                         //处理完，恢复producerChan协程
                         $producerChan->push(1);
-                        //$taskModel = $this->pool->put();
                     });
                 }
             });
@@ -197,7 +261,7 @@ class TaskServerManager
                     break;
                 }
                 $this->logMessage('taskDone:' . $receiveData['id']);
-                $taskModel->taskDone($receiveData['id'], $receiveData['data']);
+                $mainTaskModel->taskDone($receiveData['id'], $receiveData['data']);
             }
             //返回响应
             $endTime = time();
@@ -208,7 +272,7 @@ class TaskServerManager
             $this->logMessage('Exception:' . $e->getMessage());
             $return = json_encode(['Exception' => $e->getMessage()]);
         }
-        $taskModel = null;
+        $mainTaskModel = null;
         return $response->end(json_encode($return));
     }
 
@@ -251,5 +315,20 @@ class TaskServerManager
         }
     }
 
+    private function getPoolObject()
+    {
+        $pdo = $this->pool->get();
+        if (!($pdo instanceof \Swoole\Database\PDOProxy || $pdo instanceof \PDO)) {
+            throw new \Exception('getNullPoolObject');
+        }
+        $this->logMessage('pdo get:' . spl_object_hash($pdo));
+        defer(function () use ($pdo) {
+            if ($pdo !== null) {
+                $this->logMessage('pdo put:' . spl_object_hash($pdo));
+                $this->pool->put($pdo);
+            }
+        });
+        return $pdo;
+    }
 
 }

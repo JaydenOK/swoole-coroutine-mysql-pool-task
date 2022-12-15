@@ -27,7 +27,7 @@ class TaskFactory
 
     /**
      * @param $taskType
-     * @param null $pdo
+     * @param \PDO | \Swoole\Database\PDOProxy | null $pdo 为null则每个任务直接连接mysql，为PDO则使用连接池
      * @return AmazonModel|ShopeeModel|null
      * @throws \Exception
      */

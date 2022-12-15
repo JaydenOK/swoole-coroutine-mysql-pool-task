@@ -12,20 +12,34 @@ class TaskFactory
     const TASK_SHOPEE = 'Shopee';
     const TASK_EBAY = 'Ebay';
 
+    public static function taskList()
+    {
+        $taskList = [];
+        $class = new \ReflectionClass(TaskFactory::class);
+        $constants = $class->getConstants();
+        foreach ($constants as $key => $value) {
+            if (strpos($key, 'TASK_') !== false) {
+                $taskList[$key] = $value;
+            }
+        }
+        return $taskList;
+    }
+
     /**
      * @param $taskType
-     * @return TaskModel
+     * @param null $pdo
+     * @return AmazonModel|ShopeeModel|null
      * @throws \Exception
      */
-    public static function factory($taskType)
+    public static function factory($taskType, $pdo = null)
     {
         $task = null;
         switch ($taskType) {
             case self::TASK_AMAZON:
-                $task = new AmazonModel();
+                $task = new AmazonModel($pdo);
                 break;
             case self::TASK_SHOPEE:
-                $task = new ShopeeModel();
+                $task = new ShopeeModel($pdo);
                 break;
             default:
                 break;
@@ -35,5 +49,6 @@ class TaskFactory
         }
         return $task;
     }
+
 
 }

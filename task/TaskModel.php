@@ -15,17 +15,32 @@ abstract class TaskModel implements Task
      * @var \module\lib\MysqliDb
      */
     protected $query;
+    /**
+     * @var \PDO
+     */
+    protected $poolObject;
 
-    public function __construct()
+    protected $isUsePool = false;
+
+    public function __construct($poolObject = null)
     {
-        $this->mysqliClient = new MysqliClient();
-        $this->query = $this->mysqliClient->getQuery();
+        if ($poolObject !== null) {
+            $this->isUsePool = true;
+            $this->poolObject = $poolObject;
+        } else {
+            $this->mysqliClient = new MysqliClient();
+            $this->query = $this->mysqliClient->getQuery();
+        }
     }
 
     //关闭mysql短连接
     public function __destruct()
     {
-        $this->query->disconnect();
+        if ($this->isUsePool) {
+
+        } else {
+            $this->query->disconnect();
+        }
         $this->query = null;
         $this->mysqliClient = null;
     }

@@ -16,12 +16,16 @@ abstract class TaskModel implements Task
      */
     protected $query;
     /**
-     * @var \PDO
+     * @var \PDO | \Swoole\Database\PDOProxy | null
      */
     protected $poolObject;
 
     protected $isUsePool = false;
 
+    /**
+     * TaskModel constructor.
+     * @param \PDO | \Swoole\Database\PDOProxy | null $poolObject
+     */
     public function __construct($poolObject = null)
     {
         if ($poolObject !== null) {
@@ -37,7 +41,7 @@ abstract class TaskModel implements Task
     public function __destruct()
     {
         if ($this->isUsePool) {
-
+            $this->poolObject = null;
         } else {
             $this->query->disconnect();
         }

@@ -2,8 +2,21 @@
 
 namespace module\server;
 
+use chan;
+use Exception;
+use InvalidArgumentException;
 use module\lib\PdoPoolClient;
 use module\task\TaskFactory;
+use PDO;
+use Swoole\Coroutine;
+use Swoole\Database\PDOPool;
+use Swoole\Database\PDOProxy;
+use Swoole\Http\Request;
+use Swoole\Http\Response;
+use Swoole\Process;
+use Swoole\Server;
+use Swoole\Table;
+use Swoole\Timer;
 
 class TaskServerManager
 {
@@ -45,9 +58,17 @@ class TaskServerManager
      */
     private $isUsePool = false;
     /**
-     * @var \Swoole\Database\PDOPool
+     * @var PDOPool
      */
     private $pool;
+    private $checkAvailableTime = 1;
+    private $checkLiveTime = 10;
+    private $availableTimerId;
+    private $liveTimerId;
+    /**
+     * @var Table
+     */
+    private $poolTable;
 
     public function run($argv)
     {
@@ -58,11 +79,11 @@ class TaskServerManager
             $this->daemon = isset($argv[4]) && (in_array($argv[4], ['daemon', 'd', '-d'])) ? true : false;
             $this->isUsePool = isset($argv[5]) && (in_array($argv[5], ['use_pool', 'pool', '-pool'])) ? true : false;
             if (empty($this->taskType) || empty($this->port) || empty($cmd)) {
-                throw new \InvalidArgumentException('params error');
+                throw new InvalidArgumentException('params error');
             }
             $this->pidFile = $this->taskType . '.pid';
             if (!in_array($this->taskType, TaskFactory::taskList())) {
-                throw new \InvalidArgumentException('task_type not exist');
+                throw new InvalidArgumentException('task_type not exist');
             }
             switch ($cmd) {
                 case 'start':
@@ -77,7 +98,7 @@ class TaskServerManager
                 default:
                     break;
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logMessage('Exception:' . $e->getMessage());
         }
     }
@@ -85,7 +106,7 @@ class TaskServerManager
     private function start()
     {
         //一键协程化，使回调事件函数的mysql连接、查询协程化
-        \Swoole\Coroutine::set(['hook_flags' => SWOOLE_HOOK_TCP]);
+        Coroutine::set(['hook_flags' => SWOOLE_HOOK_TCP]);
         //\Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
         $this->renameProcessName($this->processPrefix . $this->taskType);
         $this->httpServer = new \Swoole\Http\Server("0.0.0.0", $this->port);
@@ -95,6 +116,7 @@ class TaskServerManager
             'pid_file' => MODULE_DIR . '/logs/' . $this->pidFile,
         ];
         $this->setServerSetting($setting);
+        $this->createTable();
         $this->bindEvent(self::EVENT_START, [$this, 'onStart']);
         $this->bindEvent(self::EVENT_MANAGER_START, [$this, 'onManagerStart']);
         $this->bindEvent(self::EVENT_WORKER_START, [$this, 'onWorkerStart']);
@@ -137,7 +159,7 @@ class TaskServerManager
         echo 'done' . PHP_EOL;
     }
 
-    public function onStart(\Swoole\Server $server)
+    public function onStart(Server $server)
     {
         //onStart 调用时修改主进程名称
         //onManagerStart 调用时修改管理进程 (manager) 的名称
@@ -146,13 +168,13 @@ class TaskServerManager
         $this->renameProcessName($this->processPrefix . $this->taskType . '-master');
     }
 
-    public function onManagerStart(\Swoole\Server $server)
+    public function onManagerStart(Server $server)
     {
         $this->logMessage('manager start, manager_pid:' . $server->manager_pid);
         $this->renameProcessName($this->processPrefix . $this->taskType . '-manager');
     }
 
-    public function onWorkerStart(\Swoole\Server $server, int $workerId)
+    public function onWorkerStart(Server $server, int $workerId)
     {
         $this->logMessage('worker start, worker_pid:' . $server->worker_pid);
         $this->renameProcessName($this->processPrefix . $this->taskType . '-worker-' . $workerId);
@@ -162,49 +184,52 @@ class TaskServerManager
                 $this->pool = (new PdoPoolClient())->initPool($this->poolSize);
                 //预热，填充连接池
                 $this->pool->fill();
+                //定期检查连接池对象
+                $this->checkPool();
                 $this->logMessage('use pool:' . $this->poolSize);
-            } catch (\Exception $e) {
+            } catch (Exception $e) {
                 $this->logMessage('initPool error:' . $e->getMessage());
             }
         }
     }
 
-    public function onWorkerStop(\Swoole\Server $server, int $workerId)
+    public function onWorkerStop(Server $server, int $workerId)
     {
         $this->logMessage('worker stop, worker_pid:' . $server->worker_pid);
         if ($this->isUsePool) {
             try {
                 $this->logMessage('pool close');
                 $this->pool && $this->pool->close();
-            } catch (\Exception $e) {
+                $this->clearTimer();
+            } catch (Exception $e) {
                 $this->logMessage('pool close error:' . $e->getMessage());
             }
         }
     }
 
-    public function onRequest(\Swoole\Http\Request $request, \Swoole\Http\Response $response)
+    public function onRequest(Request $request, Response $response)
     {
         try {
             $concurrency = isset($request->get['concurrency']) ? (int)$request->get['concurrency'] : 5;  //并发数
             $total = isset($request->get['total']) ? (int)$request->get['total'] : 100;  //需总处理记录数
             $taskType = isset($request->get['task_type']) ? (string)$request->get['task_type'] : '';  //任务类型
             if ($concurrency <= 0 || empty($taskType)) {
-                throw new \InvalidArgumentException('parameters error');
+                throw new InvalidArgumentException('parameters error');
             }
             //数据库配置信息
             $pdo = $this->isUsePool ? $this->getPoolObject() : null;
             $mainTaskModel = TaskFactory::factory($taskType, $pdo);
             $taskList = $mainTaskModel->getTaskList(['limit' => $total]);       //已一键协程化，多个请求时，此处不阻塞
             if (empty($taskList)) {
-                throw new \InvalidArgumentException('no tasks waiting to be executed');
+                throw new InvalidArgumentException('no tasks waiting to be executed');
             }
             $taskCount = count($taskList);
             $startTime = time();
             $this->logMessage("task count:{$taskCount}");
-            $taskChan = new \chan($taskCount);
+            $taskChan = new chan($taskCount);
             //初始化并发数量
-            $producerChan = new \chan($concurrency);
-            $dataChan = new \chan($total);
+            $producerChan = new chan($concurrency);
+            $dataChan = new chan($total);
             for ($size = 1; $size <= $concurrency; $size++) {
                 $producerChan->push(1);
             }
@@ -231,14 +256,14 @@ class TaskServerManager
                             //每个协程，创建独立连接（可从连接池获取）
                             $pdo = $this->isUsePool ? $this->getPoolObject() : null;
                             $taskModel = TaskFactory::factory($task['task_type'], $pdo);
-                            \Swoole\Coroutine::defer(function () use ($taskModel) {
+                            Coroutine::defer(function () use ($taskModel) {
                                 //释放内存及mysql连接
                                 unset($taskModel);
                             });
                             $this->logMessage('taskRun:' . $task['id']);
                             $responseBody = $taskModel->taskRun($task['id'], $task);
                             $this->logMessage("taskFinish:{$task['id']}");
-                        } catch (\Exception $e) {
+                        } catch (Exception $e) {
                             $this->logMessage("taskRunException: id:{$task['id']}: msg:" . $e->getMessage());
                             $responseBody = null;
                         }
@@ -266,9 +291,9 @@ class TaskServerManager
             //返回响应
             $endTime = time();
             $return = ['taskCount' => $taskCount, 'concurrency' => $concurrency, 'useTime' => ($endTime - $startTime) . 's'];
-        } catch (\InvalidArgumentException $e) {
+        } catch (InvalidArgumentException $e) {
             $return = json_encode(['Exception' => $e->getMessage()]);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logMessage('Exception:' . $e->getMessage());
             $return = json_encode(['Exception' => $e->getMessage()]);
         }
@@ -276,7 +301,7 @@ class TaskServerManager
         return $response->end(json_encode($return));
     }
 
-    private function logMessage($logData = '')
+    private function logMessage($logData)
     {
         $logData = (is_array($logData) || is_object($logData)) ? json_encode($logData, JSON_UNESCAPED_UNICODE) : $logData;
         echo date('[Y-m-d H:i:s]') . $logData . PHP_EOL;
@@ -286,17 +311,17 @@ class TaskServerManager
     {
         $pidFile = MODULE_DIR . '/logs/' . $this->pidFile;
         if (!file_exists($pidFile)) {
-            throw new \Exception('server not running');
+            throw new Exception('server not running');
         }
         $pid = file_get_contents($pidFile);
-        if (!\Swoole\Process::kill($pid, 0)) {
+        if (!Process::kill($pid, 0)) {
             unlink($pidFile);
-            throw new \Exception("pid not exist:{$pid}");
+            throw new Exception("pid not exist:{$pid}");
         } else {
             if ($force) {
-                \Swoole\Process::kill($pid, SIGKILL);
+                Process::kill($pid, SIGKILL);
             } else {
-                \Swoole\Process::kill($pid);
+                Process::kill($pid);
             }
         }
     }
@@ -305,30 +330,80 @@ class TaskServerManager
     {
         $pidFile = MODULE_DIR . '/logs/' . $this->pidFile;
         if (!file_exists($pidFile)) {
-            throw new \Exception('server not running');
+            throw new Exception('server not running');
         }
         $pid = file_get_contents($pidFile);
-        if (!\Swoole\Process::kill($pid, 0)) {
+        if (!Process::kill($pid, 0)) {
             echo 'not running, pid:' . $pid . PHP_EOL;
         } else {
             echo 'running, pid:' . $pid . PHP_EOL;
         }
     }
 
+    /**
+     * swoole官方连接池，PDOProxy 实现了自动重连(代理模式)，构造函数注入 \PDO 对象。即$__object属性
+     * 可改用EasySwoole连接池
+     * @return PDO|PDOProxy
+     * @throws Exception
+     */
     private function getPoolObject()
     {
         $pdo = $this->pool->get();
-        if (!($pdo instanceof \Swoole\Database\PDOProxy || $pdo instanceof \PDO)) {
-            throw new \Exception('getNullPoolObject');
+        if (!($pdo instanceof PDOProxy || $pdo instanceof PDO)) {
+            throw new Exception('getNullPoolObject');
         }
         $this->logMessage('pdo get:' . spl_object_hash($pdo));
         defer(function () use ($pdo) {
+            //协程函数结束归还对象
             if ($pdo !== null) {
                 $this->logMessage('pdo put:' . spl_object_hash($pdo));
                 $this->pool->put($pdo);
             }
         });
         return $pdo;
+    }
+
+    //连接池对象注意点：
+    //1，需要定期检查是否可用；
+    //2，需要定期更新对象，防止在任务执行过程中连接断开（记录最后获取，使用时间，定时校验对象是否留存超时）
+    public function checkPool()
+    {
+        if (true) {
+            return 'not support now';
+        }
+        $this->availableTimerId = Timer::tick($this->checkAvailableTime * 1000, function () {
+
+        });
+
+        $this->liveTimerId = Timer::tick($this->checkLiveTime * 1000, function () {
+        });
+    }
+
+    private function clearTimer()
+    {
+        if ($this->availableTimerId) {
+            Timer::clear($this->availableTimerId);
+        }
+        if ($this->liveTimerId) {
+            Timer::clear($this->liveTimerId);
+        }
+    }
+
+    private function createTable()
+    {
+        if (true) {
+            return 'not support now';
+        }
+        //存储数据size，即mysql总行数
+        $size = 1024;
+        $this->poolTable = new Table($size);
+        $this->poolTable->column('created', Table::TYPE_INT, 10);
+        $this->poolTable->column('pid', Table::TYPE_INT, 10);
+        $this->poolTable->column('inuse', Table::TYPE_INT, 10);
+        $this->poolTable->column('loadWaitTimes', Table::TYPE_FLOAT, 10);
+        $this->poolTable->column('loadUseTimes', Table::TYPE_INT, 10);
+        $this->poolTable->column('lastAliveTime', Table::TYPE_INT, 10);
+        $this->poolTable->create();
     }
 
 }

@@ -1,6 +1,6 @@
 <?php
 /**
- * 引导程序文件
+ * 程序引导文件
  */
 
 define('PROJECT_DIR', dirname(dirname(__FILE__)));

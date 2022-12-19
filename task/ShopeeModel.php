@@ -34,7 +34,7 @@ class ShopeeModel extends TaskModel
 
     public function taskRun($id, $task)
     {
-        // TODO: Implement runTask() method.
+        // TODO: Implement taskRun() method.
         if ($this->isUsePool) {
             $sql = "update {$this->tableName()} set refresh_num = :refresh_num where id = :id";
             $statement = $this->poolObject->prepare($sql);
@@ -77,7 +77,7 @@ class ShopeeModel extends TaskModel
 
     public function taskDone($id, $data)
     {
-        // TODO: Implement taskCallback() method.
+        // TODO: Implement taskDone() method.
         if ($this->isUsePool) {
             $sql = "update {$this->tableName()} set refresh_msg=:refresh_msg, refresh_time=:refresh_time where id=:id";
             $statement = $this->poolObject->prepare($sql);

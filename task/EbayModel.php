@@ -18,11 +18,11 @@ class Ebay extends TaskModel
 
     public function taskRun($id, $task)
     {
-        // TODO: Implement runTask() method.
+        // TODO: Implement taskRun() method.
     }
 
     public function taskDone($id, $data)
     {
-        // TODO: Implement taskCallback() method.
+        // TODO: Implement taskDone() method.
     }
 }

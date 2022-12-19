@@ -156,7 +156,6 @@ class TaskServerManager
     private function startServer()
     {
         $this->httpServer->start();
-        echo 'done' . PHP_EOL;
     }
 
     public function onStart(Server $server)
@@ -333,6 +332,7 @@ class TaskServerManager
             throw new Exception('server not running');
         }
         $pid = file_get_contents($pidFile);
+        //$signo=0，可以检测进程是否存在，不会发送信号
         if (!Process::kill($pid, 0)) {
             echo 'not running, pid:' . $pid . PHP_EOL;
         } else {

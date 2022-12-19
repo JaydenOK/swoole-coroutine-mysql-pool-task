@@ -47,7 +47,7 @@ class AmazonModel extends TaskModel
      */
     public function taskRun($id, $task)
     {
-        // TODO: Implement runTask() method.
+        // TODO: Implement taskRun() method.
         //todo 模拟业务耗时处理逻辑
         if ($this->isUsePool) {
             $sql = "update {$this->tableName()} set refresh_num = :refresh_num, update_time = :update_time where id = :id";
@@ -95,7 +95,7 @@ class AmazonModel extends TaskModel
 
     public function taskDone($id, $data)
     {
-        // TODO: Implement taskCallback() method.
+        // TODO: Implement taskDone() method.
         if ($this->isUsePool) {
             $sql = "update {$this->tableName()} set refresh_msg=:refresh_msg, refresh_time=:refresh_time where id=:id";
             $statement = $this->poolObject->prepare($sql);
